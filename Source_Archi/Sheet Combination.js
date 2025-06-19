@@ -10,6 +10,9 @@ function combineSheets() {
   const SHEET3_ID = '1LX2S5it81y7Eg8d1lqnx59kNhzgFFOcRPrJrLkz00Js'; // Third sheet
   const SHEET3_TAB = 'Came List';
   
+  const SHEET4_ID = '10QNmKpFnAkDP3GrHV4BnzOOzOzI8vSfc3QiyhgJKcMY'; // Fourth sheet - Payment List
+  const SHEET4_TAB = 'Payment_List(UU)';
+  
   const DESTINATION_SHEET_ID = '1G2b3SHGf883wtuGnA88iO0BQY4xtMS5-T8hwXvgcpps';
   const DESTINATION_TAB = 'Sheet1';
   
@@ -27,6 +30,10 @@ function combineSheets() {
     const sheet3 = SpreadsheetApp.openById(SHEET3_ID).getSheetByName(SHEET3_TAB);
     if (!sheet3) throw new Error('Sheet 3 not found');
     
+    console.log('Opening Sheet 4...');
+    const sheet4 = SpreadsheetApp.openById(SHEET4_ID).getSheetByName(SHEET4_TAB);
+    if (!sheet4) throw new Error('Sheet 4 not found');
+    
     console.log('Opening Destination Sheet...');
     const destSheet = SpreadsheetApp.openById(DESTINATION_SHEET_ID).getSheetByName(DESTINATION_TAB);
     if (!destSheet) throw new Error('Destination sheet not found');
@@ -35,8 +42,9 @@ function combineSheets() {
     const data1 = getSheetData(sheet1);
     const data2 = getSheetData(sheet2);
     const data3 = getSheetData(sheet3);
+    const data4 = getSheetData(sheet4);
     
-    if (data1.length === 0 && data2.length === 0 && data3.length === 0) {
+    if (data1.length === 0 && data2.length === 0 && data3.length === 0 && data4.length === 0) {
       console.log('No data found in source sheets');
       return;
     }
@@ -45,7 +53,7 @@ function combineSheets() {
     const existingData = getSheetData(destSheet);
     
     // Process the data with smart merging
-    const processedData = smartMergeSheets(data1, data2, data3, existingData);
+    const processedData = smartMergeSheets(data1, data2, data3, data4, existingData);
     
     // Clear and write the merged data
     destSheet.clear();
@@ -72,6 +80,13 @@ function combineSheets() {
             .setBackground('#D5F0E1'); // Light green for sheet 3
         });
       }
+      
+      if (processedData.sheet4Rows.length > 0) {
+        processedData.sheet4Rows.forEach(rowIndex => {
+          destSheet.getRange(rowIndex, 1, 1, processedData.combinedData[0].length)
+            .setBackground('#FFE4B5'); // Light orange for sheet 4
+        });
+      }
     }
     
     console.log('EduBridge Academy sheets merged successfully!');
@@ -84,23 +99,25 @@ function combineSheets() {
   }
 }
 
-function smartMergeSheets(data1, data2, data3, existingData) {
+function smartMergeSheets(data1, data2, data3, data4, existingData) {
   const result = {
     combinedData: [],
     sheet2Rows: [],
     sheet3Rows: [],
+    sheet4Rows: [],
     mergedCount: 0,
     newRecords: 0
   };
   
   // Create master headers from all sheets
-  const allHeaders = getMasterHeaders(data1, data2, data3, existingData);
+  const allHeaders = getMasterHeaders(data1, data2, data3, data4, existingData);
   result.combinedData.push(allHeaders);
   
   // Convert all data to record objects for easier processing
   const records1 = dataToRecords(data1);
   const records2 = dataToRecords(data2);
   const records3 = dataToRecords(data3);
+  const records4 = dataToRecords(data4);
   const existingRecords = dataToRecords(existingData);
   
   // Create a map to track all records by email
@@ -168,6 +185,24 @@ function smartMergeSheets(data1, data2, data3, existingData) {
     }
   });
   
+  // Process Sheet 4 records
+  records4.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      if (recordMap.has(email)) {
+        // Merge with existing record
+        const existingRecord = recordMap.get(email);
+        const mergedRecord = mergeRecords(existingRecord, record);
+        recordMap.set(email, { ...mergedRecord, source: existingRecord.source === 'existing' ? 'existing' : 'merged' });
+        result.mergedCount++;
+      } else {
+        // New record from sheet 4
+        recordMap.set(email, { ...record, source: 'sheet4' });
+        result.newRecords++;
+      }
+    }
+  });
+  
   // Convert back to array format and track sheet rows
   let rowIndex = 2; // Start from row 2 (after header)
   recordMap.forEach(record => {
@@ -183,6 +218,8 @@ function smartMergeSheets(data1, data2, data3, existingData) {
       result.sheet2Rows.push(rowIndex);
     } else if (record.source === 'sheet3') {
       result.sheet3Rows.push(rowIndex);
+    } else if (record.source === 'sheet4') {
+      result.sheet4Rows.push(rowIndex);
     }
     rowIndex++;
   });
@@ -190,11 +227,11 @@ function smartMergeSheets(data1, data2, data3, existingData) {
   return result;
 }
 
-function getMasterHeaders(data1, data2, data3, existingData) {
+function getMasterHeaders(data1, data2, data3, data4, existingData) {
   const allHeaders = new Set();
   
   // Add headers from all sources
-  [data1, data2, data3, existingData].forEach(data => {
+  [data1, data2, data3, data4, existingData].forEach(data => {
     if (data.length > 0) {
       data[0].forEach(header => {
         if (header) allHeaders.add(header);
