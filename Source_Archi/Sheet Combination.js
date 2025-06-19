@@ -1,15 +1,14 @@
-// Google Apps Script to combine your two EduBridge Academy sheets (INCREMENTAL UPDATES)
+// Google Apps Script to combine and MERGE your EduBridge Academy sheets
 function combineSheets() {
   // CONFIGURATION - Your actual sheet details
   const SHEET1_ID = '1TBLTPiDlpjGV5LPb2ahZ0wWUvoLauhHOW9-_cn-ZUyI'; // Data Analyst program sheet
-  const SHEET1_TAB = 'Form responses 1'; // Common Google Forms tab name
+  const SHEET1_TAB = 'Form responses 1';
   
   const SHEET2_ID = '1fQ0lce6cSEvV_WSG9Vygu6FDonkBptc6ou1R-doQhNo'; // Second sheet
-  const SHEET2_TAB = 'Form responses 1'; // Common Google Forms tab name
+  const SHEET2_TAB = 'Form responses 1';
   
-  // Your destination sheet ID
   const DESTINATION_SHEET_ID = '1G2b3SHGf883wtuGnA88iO0BQY4xtMS5-T8hwXvgcpps';
-  const DESTINATION_TAB = 'Sheet1'; // Default tab name
+  const DESTINATION_TAB = 'Sheet1';
   
   try {
     // Open the sheets
@@ -17,176 +16,195 @@ function combineSheets() {
     const sheet2 = SpreadsheetApp.openById(SHEET2_ID).getSheetByName(SHEET2_TAB);
     const destSheet = SpreadsheetApp.openById(DESTINATION_SHEET_ID).getSheetByName(DESTINATION_TAB);
     
-    // Get existing data from destination to avoid duplicates
-    const existingData = getSheetData(destSheet);
-    const existingEmails = getExistingEmails(existingData);
-    
     // Get data from both sheets
     const data1 = getSheetData(sheet1);
     const data2 = getSheetData(sheet2);
     
-    // Only process if we have data
     if (data1.length === 0 && data2.length === 0) {
       console.log('No data found in source sheets');
       return;
     }
     
-    // If destination is empty, do initial setup
-    if (existingData.length === 0) {
-      console.log('Initial setup - combining all data');
-      const combinedData = combineAllData(data1, data2);
-      writeDataWithColorCoding(destSheet, combinedData, data1.length - 1);
-    } else {
-      console.log('Incremental update - adding new records only');
-      addNewRecordsOnly(destSheet, data1, data2, existingEmails, existingData);
+    // Get existing data from destination
+    const existingData = getSheetData(destSheet);
+    
+    // Process the data with smart merging
+    const processedData = smartMergeSheets(data1, data2, existingData);
+    
+    // Clear and write the merged data
+    destSheet.clear();
+    if (processedData.combinedData.length > 0) {
+      destSheet.getRange(1, 1, processedData.combinedData.length, processedData.combinedData[0].length)
+        .setValues(processedData.combinedData);
+      
+      // Format headers
+      destSheet.getRange(1, 1, 1, processedData.combinedData[0].length)
+        .setFontWeight('bold')
+        .setBackground('#f0f0f0');
+      
+      // Color code rows that came from sheet 2 (light purple)
+      if (processedData.sheet2Rows.length > 0) {
+        processedData.sheet2Rows.forEach(rowIndex => {
+          destSheet.getRange(rowIndex, 1, 1, processedData.combinedData[0].length)
+            .setBackground('#E1D5F0');
+        });
+      }
     }
+    
+    console.log('EduBridge Academy sheets merged successfully!');
+    console.log(`Total unique records: ${processedData.combinedData.length - 1}`);
+    console.log(`Records merged: ${processedData.mergedCount}`);
+    console.log(`New records added: ${processedData.newRecords}`);
     
   } catch (error) {
     console.error('Error combining sheets:', error);
   }
 }
 
-function getExistingEmails(existingData) {
-  if (existingData.length <= 1) return new Set();
+function smartMergeSheets(data1, data2, existingData) {
+  const result = {
+    combinedData: [],
+    sheet2Rows: [],
+    mergedCount: 0,
+    newRecords: 0
+  };
   
-  const headers = existingData[0];
-  const emailIndex = headers.indexOf('Email Address');
+  // Create master headers from all sheets
+  const allHeaders = getMasterHeaders(data1, data2, existingData);
+  result.combinedData.push(allHeaders);
   
-  if (emailIndex === -1) return new Set();
+  // Convert all data to record objects for easier processing
+  const records1 = dataToRecords(data1);
+  const records2 = dataToRecords(data2);
+  const existingRecords = dataToRecords(existingData);
   
-  const emails = new Set();
-  for (let i = 1; i < existingData.length; i++) {
-    if (existingData[i][emailIndex]) {
-      emails.add(existingData[i][emailIndex].toString().trim().toLowerCase());
+  // Create a map to track all records by email
+  const recordMap = new Map();
+  
+  // Add existing records first
+  existingRecords.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      recordMap.set(email, { ...record, source: 'existing' });
     }
-  }
-  return emails;
-}
-
-function addNewRecordsOnly(destSheet, data1, data2, existingEmails, existingData) {
-  const headers = existingData[0];
-  const newRecords = [];
+  });
   
-  // Check data1 for new records
-  const newFromSheet1 = getNewRecords(data1, existingEmails, headers);
-  const newFromSheet2 = getNewRecords(data2, existingEmails, headers);
+  // Process Sheet 1 records
+  records1.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      if (recordMap.has(email)) {
+        // Merge with existing record
+        const existingRecord = recordMap.get(email);
+        const mergedRecord = mergeRecords(existingRecord, record);
+        recordMap.set(email, { ...mergedRecord, source: existingRecord.source });
+        result.mergedCount++;
+      } else {
+        // New record
+        recordMap.set(email, { ...record, source: 'sheet1' });
+        result.newRecords++;
+      }
+    }
+  });
   
-  if (newFromSheet1.length === 0 && newFromSheet2.length === 0) {
-    console.log('No new records found');
-    return;
-  }
+  // Process Sheet 2 records
+  records2.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      if (recordMap.has(email)) {
+        // Merge with existing record
+        const existingRecord = recordMap.get(email);
+        const mergedRecord = mergeRecords(existingRecord, record);
+        recordMap.set(email, { ...mergedRecord, source: existingRecord.source === 'existing' ? 'existing' : 'merged' });
+        result.mergedCount++;
+      } else {
+        // New record from sheet 2
+        recordMap.set(email, { ...record, source: 'sheet2' });
+        result.newRecords++;
+      }
+    }
+  });
   
-  // Add new records
-  const lastRow = destSheet.getLastRow();
-  
-  // Add records from sheet 1
-  if (newFromSheet1.length > 0) {
-    const startRow = lastRow + 1;
-    destSheet.getRange(startRow, 1, newFromSheet1.length, newFromSheet1[0].length).setValues(newFromSheet1);
-    console.log(`Added ${newFromSheet1.length} new records from Data Analyst program`);
-  }
-  
-  // Add records from sheet 2 with color coding
-  if (newFromSheet2.length > 0) {
-    const startRow = destSheet.getLastRow() + 1;
-    destSheet.getRange(startRow, 1, newFromSheet2.length, newFromSheet2[0].length).setValues(newFromSheet2);
+  // Convert back to array format and track sheet2 rows
+  let rowIndex = 2; // Start from row 2 (after header)
+  recordMap.forEach(record => {
+    const recordArray = allHeaders.map(header => {
+      const value = record[header] || '';
+      // Replace blank values with "Not Recorded"
+      return (value === '' || value === null || value === undefined) ? 'Not Recorded' : value;
+    });
+    result.combinedData.push(recordArray);
     
-    // Color code the first row of sheet 2 data light purple
-    destSheet.getRange(startRow, 1, 1, newFromSheet2[0].length).setBackground('#E1D5F0');
-    
-    console.log(`Added ${newFromSheet2.length} new records from second sheet`);
-  }
-}
-
-function getNewRecords(sourceData, existingEmails, masterHeaders) {
-  if (sourceData.length <= 1) return [];
-  
-  const sourceHeaders = sourceData[0];
-  const emailIndex = sourceHeaders.indexOf('Email Address');
-  
-  if (emailIndex === -1) return [];
-  
-  const newRecords = [];
-  
-  for (let i = 1; i < sourceData.length; i++) {
-    const email = sourceData[i][emailIndex];
-    if (email && !existingEmails.has(email.toString().trim().toLowerCase())) {
-      // Map this record to master headers format
-      const mappedRecord = mapRecordToHeaders(sourceData[i], sourceHeaders, masterHeaders);
-      newRecords.push(mappedRecord);
+    // Track which rows came from sheet 2
+    if (record.source === 'sheet2') {
+      result.sheet2Rows.push(rowIndex);
     }
-  }
+    rowIndex++;
+  });
   
-  return newRecords;
+  return result;
 }
 
-function mapRecordToHeaders(record, sourceHeaders, masterHeaders) {
-  const mappedRecord = new Array(masterHeaders.length).fill('');
+function getMasterHeaders(data1, data2, existingData) {
+  const allHeaders = new Set();
   
-  for (let i = 0; i < sourceHeaders.length; i++) {
-    const headerName = sourceHeaders[i];
-    const masterIndex = masterHeaders.indexOf(headerName);
-    if (masterIndex !== -1) {
-      mappedRecord[masterIndex] = record[i] || '';
+  // Add headers from all sources
+  [data1, data2, existingData].forEach(data => {
+    if (data.length > 0) {
+      data[0].forEach(header => {
+        if (header) allHeaders.add(header);
+      });
     }
-  }
+  });
   
-  return mappedRecord;
+  return Array.from(allHeaders);
 }
 
-function combineAllData(data1, data2) {
-  if (data1.length === 0 && data2.length === 0) {
-    return [];
+function dataToRecords(data) {
+  if (data.length <= 1) return [];
+  
+  const headers = data[0];
+  const records = [];
+  
+  for (let i = 1; i < data.length; i++) {
+    const record = {};
+    headers.forEach((header, index) => {
+      const value = data[i][index];
+      // Replace blank values with "Not Recorded" when creating records
+      record[header] = (value === '' || value === null || value === undefined) ? 'Not Recorded' : value;
+    });
+    records.push(record);
   }
   
-  if (data1.length === 0) {
-    return data2;
-  }
-  
-  if (data2.length === 0) {
-    return data1;
-  }
-  
-  // Get headers from both sheets
-  const headers1 = data1[0];
-  const headers2 = data2[0];
-  
-  // Create master header list (all unique headers)
-  const allHeaders = [...new Set([...headers1, ...headers2])];
-  
-  // Convert data to objects for easier manipulation
-  const objects1 = dataToObjects(data1);
-  const objects2 = dataToObjects(data2);
-  
-  // Combine all objects
-  const allObjects = [...objects1, ...objects2];
-  
-  // Convert back to array format with consistent columns
-  return objectsToData(allObjects, allHeaders);
+  return records;
 }
 
-function writeDataWithColorCoding(destSheet, combinedData, sheet1RecordCount) {
-  if (combinedData.length === 0) return;
+function mergeRecords(record1, record2) {
+  const merged = { ...record1 };
   
-  // Write all data
-  destSheet.getRange(1, 1, combinedData.length, combinedData[0].length).setValues(combinedData);
+  // Merge fields, preferring non-empty values
+  Object.keys(record2).forEach(key => {
+    if (key !== 'source') {
+      // If record1 has "Not Recorded" but record2 has real data, use record2's value
+      if ((merged[key] === 'Not Recorded' || !merged[key] || merged[key].toString().trim() === '') && 
+          record2[key] && record2[key] !== 'Not Recorded' && record2[key].toString().trim() !== '') {
+        merged[key] = record2[key];
+      }
+      // If both have values and they're different, combine them (but not if one is "Not Recorded")
+      else if (merged[key] && record2[key] && 
+               merged[key] !== 'Not Recorded' && record2[key] !== 'Not Recorded' &&
+               merged[key].toString().trim() !== record2[key].toString().trim() &&
+               merged[key].toString().trim() !== '' &&
+               record2[key].toString().trim() !== '') {
+        // For certain fields, we might want to combine rather than overwrite
+        if (key.includes('Why') || key.includes('skills') || key.includes('project')) {
+          merged[key] = merged[key] + ' | ' + record2[key];
+        }
+      }
+    }
+  });
   
-  // Format headers
-  destSheet.getRange(1, 1, 1, combinedData[0].length)
-    .setFontWeight('bold')
-    .setBackground('#f0f0f0');
-  
-  // Color code where sheet 2 starts (light purple)
-  const sheet2StartRow = sheet1RecordCount + 2; // +1 for header, +1 for next row
-  if (sheet2StartRow <= combinedData.length) {
-    destSheet.getRange(sheet2StartRow, 1, 1, combinedData[0].length)
-      .setBackground('#E1D5F0');
-  }
-  
-  console.log(`Initial setup complete:`);
-  console.log(`- ${sheet1RecordCount} records from Data Analyst program`);
-  console.log(`- ${combinedData.length - 1 - sheet1RecordCount} records from second sheet`);
-  console.log(`- Sheet 2 starts at row ${sheet2StartRow} (light purple)`);
+  return merged;
 }
 
 function getSheetData(sheet) {
@@ -198,45 +216,6 @@ function getSheetData(sheet) {
   }
   
   return sheet.getRange(1, 1, lastRow, lastCol).getValues();
-}
-
-function combineData(data1, data2) {
-  // This function is kept for compatibility but not used in incremental updates
-  return combineAllData(data1, data2);
-}
-
-function dataToObjects(data) {
-  if (data.length <= 1) {
-    return [];
-  }
-  
-  const headers = data[0];
-  const objects = [];
-  
-  for (let i = 1; i < data.length; i++) {
-    const obj = {};
-    for (let j = 0; j < headers.length; j++) {
-      obj[headers[j]] = data[i][j] || '';
-    }
-    objects.push(obj);
-  }
-  
-  return objects;
-}
-
-function objectsToData(objects, headers) {
-  if (objects.length === 0) {
-    return [headers];
-  }
-  
-  const result = [headers];
-  
-  objects.forEach(obj => {
-    const row = headers.map(header => obj[header] || '');
-    result.push(row);
-  });
-  
-  return result;
 }
 
 // Function to set up automatic updates (run this once)
@@ -256,13 +235,4 @@ function setupAutomaticUpdates() {
     .create();
     
   console.log('Automatic updates set up successfully!');
-}
-
-// Alternative: Manual trigger when source sheets change
-function setupOnEditTrigger() {
-  // This would need to be set up on each source sheet individually
-  // You would add this as an installable trigger on each source sheet
-  ScriptApp.newTrigger('combineSheets')
-    .onEdit()
-    .create();
 }
