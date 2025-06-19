@@ -250,13 +250,22 @@ function mergeRecords(record1, record2) {
       const defaultValue1 = getDefaultValue(merged[key], key);
       const defaultValue2 = getDefaultValue(record2[key], key);
       
+      // Special handling for "Industry you work in" column - Sheet 2 always overwrites Sheet 1
+      const isIndustryColumn = key && (
+        key.toLowerCase().includes('industry you work in') || 
+        key.toLowerCase().includes('industry') && key.toLowerCase().includes('work')
+      );
+      
+      if (isIndustryColumn && record2[key] && record2[key] !== 'Not Recorded' && record2[key].toString().trim() !== '') {
+        merged[key] = record2[key];
+      }
       // If record1 has default value but record2 has real data, use record2's value
-      if ((merged[key] === 'Not Recorded' || merged[key] === 0 || !merged[key] || merged[key].toString().trim() === '') && 
+      else if ((merged[key] === 'Not Recorded' || merged[key] === 0 || !merged[key] || merged[key].toString().trim() === '') && 
           record2[key] && record2[key] !== 'Not Recorded' && record2[key] !== 0 && record2[key].toString().trim() !== '') {
         merged[key] = record2[key];
       }
       // If both have values and they're different, combine them (but not if one is a default value)
-      else if (merged[key] && record2[key] && 
+      else if (!isIndustryColumn && merged[key] && record2[key] && 
                merged[key] !== 'Not Recorded' && record2[key] !== 'Not Recorded' &&
                merged[key] !== 0 && record2[key] !== 0 &&
                merged[key].toString().trim() !== record2[key].toString().trim() &&
