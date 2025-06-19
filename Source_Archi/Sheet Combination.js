@@ -173,8 +173,8 @@ function smartMergeSheets(data1, data2, data3, existingData) {
   recordMap.forEach(record => {
     const recordArray = allHeaders.map(header => {
       const value = record[header] || '';
-      // Replace blank values with "Not Recorded"
-      return (value === '' || value === null || value === undefined) ? 'Not Recorded' : value;
+      // Special handling for financial columns from third sheet
+      return getDefaultValue(value, header);
     });
     result.combinedData.push(recordArray);
     
@@ -215,76 +215,30 @@ function dataToRecords(data) {
     const record = {};
     headers.forEach((header, index) => {
       const value = data[i][index];
-      // Replace blank values with "Not Recorded" when creating records
-      record[header] = (value === '' || value === null || value === undefined) ? 'Not Recorded' : value;
+      // Use the new getDefaultValue function for consistent handling
+      record[header] = getDefaultValue(value, header);
     });
-    
-    // Intelligent column mapping and combination
-    record = smartColumnMapping(record);
-    
     records.push(record);
   }
   
   return records;
 }
 
-function smartColumnMapping(record) {
-  const mappedRecord = { ...record };
+function getDefaultValue(value, header) {
+  // Check if value is empty, null, or undefined
+  const isEmpty = (value === '' || value === null || value === undefined);
   
-  // Combine Phone Number columns intelligently
-  if (record['Whatsapp Phone Number'] || record['Phone Number']) {
-    const whatsappPhone = record['Whatsapp Phone Number'] || 'Not Recorded';
-    const regularPhone = record['Phone Number'] || 'Not Recorded';
-    
-    // If both exist and are different, combine them
-    if (whatsappPhone !== 'Not Recorded' && regularPhone !== 'Not Recorded' && whatsappPhone !== regularPhone) {
-      mappedRecord['Phone Number'] = `${regularPhone} | WhatsApp: ${whatsappPhone}`;
-    }
-    // If only WhatsApp exists, use it as main phone
-    else if (whatsappPhone !== 'Not Recorded' && regularPhone === 'Not Recorded') {
-      mappedRecord['Phone Number'] = whatsappPhone;
-    }
-    // If only regular phone exists, keep it
-    else if (regularPhone !== 'Not Recorded') {
-      mappedRecord['Phone Number'] = regularPhone;
-    }
-    
-    // Remove the separate WhatsApp column since we've combined it
-    delete mappedRecord['Whatsapp Phone Number'];
+  // Financial columns from third sheet should default to 0
+  const financialColumns = ['Payment', 'Expected', 'Amount owed'];
+  const isFinancialColumn = financialColumns.some(col => 
+    header && header.toLowerCase().includes(col.toLowerCase())
+  );
+  
+  if (isEmpty) {
+    return isFinancialColumn ? 0 : 'Not Recorded';
   }
   
-  // Combine Role columns intelligently
-  if (record['Current Role (If unemployed, put NIL)'] || record['Role']) {
-    const currentRole = record['Current Role (If unemployed, put NIL)'] || 'Not Recorded';
-    const role = record['Role'] || 'Not Recorded';
-    
-    // If both exist and are different, prefer the more detailed one
-    if (currentRole !== 'Not Recorded' && role !== 'Not Recorded') {
-      // If current role is NIL or unemployed, use the other role
-      if (currentRole.toLowerCase().includes('nil') || currentRole.toLowerCase().includes('unemployed')) {
-        mappedRecord['Current Role (If unemployed, put NIL)'] = role;
-      }
-      // If roles are different and both meaningful, combine them
-      else if (currentRole.toLowerCase() !== role.toLowerCase()) {
-        mappedRecord['Current Role (If unemployed, put NIL)'] = `${currentRole} | ${role}`;
-      }
-      // If they're similar, keep the more detailed one
-      else {
-        mappedRecord['Current Role (If unemployed, put NIL)'] = currentRole.length > role.length ? currentRole : role;
-      }
-    }
-    // If only one exists, use it
-    else if (currentRole !== 'Not Recorded') {
-      mappedRecord['Current Role (If unemployed, put NIL)'] = currentRole;
-    } else if (role !== 'Not Recorded') {
-      mappedRecord['Current Role (If unemployed, put NIL)'] = role;
-    }
-    
-    // Remove the separate Role column since we've combined it
-    delete mappedRecord['Role'];
-  }
-  
-  return mappedRecord;
+  return value;
 }
 
 function mergeRecords(record1, record2) {
@@ -293,14 +247,18 @@ function mergeRecords(record1, record2) {
   // Merge fields, preferring non-empty values
   Object.keys(record2).forEach(key => {
     if (key !== 'source') {
-      // If record1 has "Not Recorded" but record2 has real data, use record2's value
-      if ((merged[key] === 'Not Recorded' || !merged[key] || merged[key].toString().trim() === '') && 
-          record2[key] && record2[key] !== 'Not Recorded' && record2[key].toString().trim() !== '') {
+      const defaultValue1 = getDefaultValue(merged[key], key);
+      const defaultValue2 = getDefaultValue(record2[key], key);
+      
+      // If record1 has default value but record2 has real data, use record2's value
+      if ((merged[key] === 'Not Recorded' || merged[key] === 0 || !merged[key] || merged[key].toString().trim() === '') && 
+          record2[key] && record2[key] !== 'Not Recorded' && record2[key] !== 0 && record2[key].toString().trim() !== '') {
         merged[key] = record2[key];
       }
-      // If both have values and they're different, combine them (but not if one is "Not Recorded")
+      // If both have values and they're different, combine them (but not if one is a default value)
       else if (merged[key] && record2[key] && 
                merged[key] !== 'Not Recorded' && record2[key] !== 'Not Recorded' &&
+               merged[key] !== 0 && record2[key] !== 0 &&
                merged[key].toString().trim() !== record2[key].toString().trim() &&
                merged[key].toString().trim() !== '' &&
                record2[key].toString().trim() !== '') {
