@@ -93,6 +93,7 @@ function combineSheets() {
     console.log(`Total unique records: ${processedData.combinedData.length - 1}`);
     console.log(`Records merged: ${processedData.mergedCount}`);
     console.log(`New records added: ${processedData.newRecords}`);
+    console.log(`Attended records: ${processedData.attendedCount}`);
     
   } catch (error) {
     console.error('Error combining sheets:', error);
@@ -106,18 +107,45 @@ function smartMergeSheets(data1, data2, data3, data4, existingData) {
     sheet3Rows: [],
     sheet4Rows: [],
     mergedCount: 0,
-    newRecords: 0
+    newRecords: 0,
+    attendedCount: 0
   };
   
-  // Create master headers from all sheets
+  // Create sets of email addresses from Sheet 3 and Sheet 4 for attendance tracking
+  const sheet3Emails = new Set();
+  const sheet4Emails = new Set();
+  
+  // Extract emails from Sheet 3
+  const records3 = dataToRecords(data3);
+  records3.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      sheet3Emails.add(email);
+    }
+  });
+  
+  // Extract emails from Sheet 4
+  const records4 = dataToRecords(data4);
+  records4.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      sheet4Emails.add(email);
+    }
+  });
+  
+  // Create master headers from all sheets and add "Attended" column
   const allHeaders = getMasterHeaders(data1, data2, data3, data4, existingData);
+  
+  // Add "Attended" column if not already present
+  if (!allHeaders.includes('Attended')) {
+    allHeaders.push('Attended');
+  }
+  
   result.combinedData.push(allHeaders);
   
   // Convert all data to record objects for easier processing
   const records1 = dataToRecords(data1);
   const records2 = dataToRecords(data2);
-  const records3 = dataToRecords(data3);
-  const records4 = dataToRecords(data4);
   const existingRecords = dataToRecords(existingData);
   
   // Create a map to track all records by email
@@ -206,6 +234,16 @@ function smartMergeSheets(data1, data2, data3, data4, existingData) {
   // Convert back to array format and track sheet rows
   let rowIndex = 2; // Start from row 2 (after header)
   recordMap.forEach(record => {
+    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : '';
+    
+    // Determine attendance status - 1 if found in Sheet 3 or Sheet 4, 0 otherwise
+    const attended = (sheet3Emails.has(email) || sheet4Emails.has(email)) ? 1 : 0;
+    record['Attended'] = attended;
+    
+    if (attended === 1) {
+      result.attendedCount++;
+    }
+    
     const recordArray = allHeaders.map(header => {
       const value = record[header] || '';
       // Special handling for financial columns from third sheet
@@ -274,10 +312,13 @@ function getDefaultValue(value, header) {
   // Discount column should be handled specially - keep as "Not Recorded" when empty
   const isDiscountColumn = header && header.toLowerCase().includes('discount');
   
+  // Attended column should default to 0 when empty
+  const isAttendedColumn = header && header.toLowerCase() === 'attended';
+  
   if (isEmpty) {
     if (isDiscountColumn) {
       return 'Not Recorded';
-    } else if (isFinancialColumn) {
+    } else if (isFinancialColumn || isAttendedColumn) {
       return 0;
     } else {
       return 'Not Recorded';
