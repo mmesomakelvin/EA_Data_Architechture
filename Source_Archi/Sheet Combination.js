@@ -271,8 +271,40 @@ function getDefaultValue(value, header) {
     header && header.toLowerCase().includes(col.toLowerCase())
   );
   
+  // Discount column should be handled specially - keep as "Not Recorded" when empty
+  const isDiscountColumn = header && header.toLowerCase().includes('discount');
+  
   if (isEmpty) {
-    return isFinancialColumn ? 0 : 'Not Recorded';
+    if (isDiscountColumn) {
+      return 'Not Recorded';
+    } else if (isFinancialColumn) {
+      return 0;
+    } else {
+      return 'Not Recorded';
+    }
+  }
+  
+  // If discount column has a value, ensure it's formatted as percentage
+  if (isDiscountColumn && !isEmpty) {
+    const valueStr = value.toString().trim();
+    if (valueStr) {
+      // If it's already a percentage (contains %), keep it as is
+      if (valueStr.includes('%')) {
+        return valueStr;
+      }
+      // If it's a decimal (like 0.1), convert to percentage
+      const numValue = parseFloat(valueStr);
+      if (!isNaN(numValue)) {
+        // If the number is between 0 and 1, treat it as a decimal to convert to percentage
+        if (numValue >= 0 && numValue <= 1) {
+          return (numValue * 100) + '%';
+        }
+        // If the number is greater than 1, assume it's already in percentage format, just add %
+        else {
+          return numValue + '%';
+        }
+      }
+    }
   }
   
   return value;
