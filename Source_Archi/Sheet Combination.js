@@ -13,6 +13,9 @@ function combineSheets() {
   const SHEET4_ID = '10QNmKpFnAkDP3GrHV4BnzOOzOzI8vSfc3QiyhgJKcMY'; // Fourth sheet - Payment List
   const SHEET4_TAB = 'Payment_List(UU)';
   
+  const SHEET5_ID = '1Y4_QD6MbkR7cBYQFKcaP_iefU2akAnXX_ybYdcKKO8I'; // Fifth sheet - Coming Merge
+  const SHEET5_TAB = 'Coming Merge';
+  
   const DESTINATION_SHEET_ID = '1G2b3SHGf883wtuGnA88iO0BQY4xtMS5-T8hwXvgcpps';
   const DESTINATION_TAB = 'Sheet1';
   
@@ -34,6 +37,10 @@ function combineSheets() {
     const sheet4 = SpreadsheetApp.openById(SHEET4_ID).getSheetByName(SHEET4_TAB);
     if (!sheet4) throw new Error('Sheet 4 not found');
     
+    console.log('Opening Sheet 5...');
+    const sheet5 = SpreadsheetApp.openById(SHEET5_ID).getSheetByName(SHEET5_TAB);
+    if (!sheet5) throw new Error('Sheet 5 not found');
+    
     console.log('Opening Destination Sheet...');
     const destSheet = SpreadsheetApp.openById(DESTINATION_SHEET_ID).getSheetByName(DESTINATION_TAB);
     if (!destSheet) throw new Error('Destination sheet not found');
@@ -43,8 +50,9 @@ function combineSheets() {
     const data2 = getSheetData(sheet2);
     const data3 = getSheetData(sheet3);
     const data4 = getSheetData(sheet4);
+    const data5 = getSheetData(sheet5);
     
-    if (data1.length === 0 && data2.length === 0 && data3.length === 0 && data4.length === 0) {
+    if (data1.length === 0 && data2.length === 0 && data3.length === 0 && data4.length === 0 && data5.length === 0) {
       console.log('No data found in source sheets');
       return;
     }
@@ -53,7 +61,7 @@ function combineSheets() {
     const existingData = getSheetData(destSheet);
     
     // Process the data with smart merging
-    const processedData = smartMergeSheets(data1, data2, data3, data4, existingData);
+    const processedData = smartMergeSheets(data1, data2, data3, data4, data5, existingData);
     
     // Clear and write the merged data
     destSheet.clear();
@@ -87,6 +95,13 @@ function combineSheets() {
             .setBackground('#FFE4B5'); // Light orange for sheet 4
         });
       }
+      
+      if (processedData.sheet5Rows.length > 0) {
+        processedData.sheet5Rows.forEach(rowIndex => {
+          destSheet.getRange(rowIndex, 1, 1, processedData.combinedData[0].length)
+            .setBackground('#FFD700'); // Light gold for sheet 5
+        });
+      }
     }
     
     console.log('EduBridge Academy sheets merged successfully!');
@@ -94,26 +109,30 @@ function combineSheets() {
     console.log(`Records merged: ${processedData.mergedCount}`);
     console.log(`New records added: ${processedData.newRecords}`);
     console.log(`Attended records: ${processedData.attendedCount}`);
+    console.log(`Employed records: ${processedData.employedCount}`);
     
   } catch (error) {
     console.error('Error combining sheets:', error);
   }
 }
 
-function smartMergeSheets(data1, data2, data3, data4, existingData) {
+function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
   const result = {
     combinedData: [],
     sheet2Rows: [],
     sheet3Rows: [],
     sheet4Rows: [],
+    sheet5Rows: [],
     mergedCount: 0,
     newRecords: 0,
-    attendedCount: 0
+    attendedCount: 0,
+    employedCount: 0
   };
   
-  // Create sets of email addresses from Sheet 3 and Sheet 4 for attendance tracking
+  // Create sets of email addresses from Sheet 3, Sheet 4, AND Sheet 5 for attendance tracking
   const sheet3Emails = new Set();
   const sheet4Emails = new Set();
+  const sheet5Emails = new Set();
   
   // Extract emails from Sheet 3
   const records3 = dataToRecords(data3);
@@ -133,12 +152,25 @@ function smartMergeSheets(data1, data2, data3, data4, existingData) {
     }
   });
   
-  // Create master headers from all sheets and add "Attended" column
-  const allHeaders = getMasterHeaders(data1, data2, data3, data4, existingData);
+  // Extract emails from Sheet 5
+  const records5 = dataToRecords(data5);
+  records5.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      sheet5Emails.add(email);
+    }
+  });
   
-  // Add "Attended" column if not already present
+  // Create master headers from all sheets and add "Attended" and "Employed" columns
+  const allHeaders = getMasterHeaders(data1, data2, data3, data4, data5, existingData);
+  
+  // Add "Attended" and "Employed" columns if not already present
   if (!allHeaders.includes('Attended')) {
     allHeaders.push('Attended');
+  }
+  
+  if (!allHeaders.includes('Employed')) {
+    allHeaders.push('Employed');
   }
   
   result.combinedData.push(allHeaders);
@@ -231,17 +263,48 @@ function smartMergeSheets(data1, data2, data3, data4, existingData) {
     }
   });
   
+  // Process Sheet 5 records
+  records5.forEach(record => {
+    if (record['Email Address']) {
+      const email = record['Email Address'].toString().trim().toLowerCase();
+      if (recordMap.has(email)) {
+        // Merge with existing record
+        const existingRecord = recordMap.get(email);
+        const mergedRecord = mergeRecords(existingRecord, record);
+        recordMap.set(email, { ...mergedRecord, source: existingRecord.source === 'existing' ? 'existing' : 'merged' });
+        result.mergedCount++;
+      } else {
+        // New record from sheet 5
+        recordMap.set(email, { ...record, source: 'sheet5' });
+        result.newRecords++;
+      }
+    }
+  });
+  
   // Convert back to array format and track sheet rows
   let rowIndex = 2; // Start from row 2 (after header)
   recordMap.forEach(record => {
     const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : '';
     
-    // Determine attendance status - 1 if found in Sheet 3 or Sheet 4, 0 otherwise
-    const attended = (sheet3Emails.has(email) || sheet4Emails.has(email)) ? 1 : 0;
+    // FIXED: Determine attendance status - 1 if found in Sheet 3, Sheet 4, OR Sheet 5
+    const attended = (sheet3Emails.has(email) || sheet4Emails.has(email) || sheet5Emails.has(email)) ? 1 : 0;
     record['Attended'] = attended;
     
     if (attended === 1) {
       result.attendedCount++;
+    }
+    
+    // Determine employment status - 1 if has company data (not NIL, Not Recorded, or empty), 0 otherwise
+    const companyField = record['Current Company (If unemployed, put NIL)'] || '';
+    const companyStr = companyField.toString().trim().toUpperCase();
+    const employed = (companyStr && 
+                     companyStr !== 'NIL' && 
+                     companyStr !== 'NOT RECORDED' && 
+                     companyStr !== '') ? 1 : 0;
+    record['Employed'] = employed;
+    
+    if (employed === 1) {
+      result.employedCount++;
     }
     
     const recordArray = allHeaders.map(header => {
@@ -258,6 +321,8 @@ function smartMergeSheets(data1, data2, data3, data4, existingData) {
       result.sheet3Rows.push(rowIndex);
     } else if (record.source === 'sheet4') {
       result.sheet4Rows.push(rowIndex);
+    } else if (record.source === 'sheet5') {
+      result.sheet5Rows.push(rowIndex);
     }
     rowIndex++;
   });
@@ -265,11 +330,11 @@ function smartMergeSheets(data1, data2, data3, data4, existingData) {
   return result;
 }
 
-function getMasterHeaders(data1, data2, data3, data4, existingData) {
+function getMasterHeaders(data1, data2, data3, data4, data5, existingData) {
   const allHeaders = new Set();
   
   // Add headers from all sources
-  [data1, data2, data3, data4, existingData].forEach(data => {
+  [data1, data2, data3, data4, data5, existingData].forEach(data => {
     if (data.length > 0) {
       data[0].forEach(header => {
         if (header) allHeaders.add(header);
@@ -315,10 +380,13 @@ function getDefaultValue(value, header) {
   // Attended column should default to 0 when empty
   const isAttendedColumn = header && header.toLowerCase() === 'attended';
   
+  // Employed column should default to 0 when empty
+  const isEmployedColumn = header && header.toLowerCase() === 'employed';
+  
   if (isEmpty) {
     if (isDiscountColumn) {
       return 'Not Recorded';
-    } else if (isFinancialColumn || isAttendedColumn) {
+    } else if (isFinancialColumn || isAttendedColumn || isEmployedColumn) {
       return 0;
     } else {
       return 'Not Recorded';
