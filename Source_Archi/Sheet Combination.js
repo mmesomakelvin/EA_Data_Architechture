@@ -74,32 +74,11 @@ function combineSheets() {
         .setFontWeight('bold')
         .setBackground('#f0f0f0');
       
-      // Color code rows that came from different sheets
-      if (processedData.sheet2Rows.length > 0) {
-        processedData.sheet2Rows.forEach(rowIndex => {
-          destSheet.getRange(rowIndex, 1, 1, processedData.combinedData[0].length)
-            .setBackground('#E1D5F0'); // Light purple for sheet 2
-        });
-      }
-      
-      if (processedData.sheet3Rows.length > 0) {
-        processedData.sheet3Rows.forEach(rowIndex => {
-          destSheet.getRange(rowIndex, 1, 1, processedData.combinedData[0].length)
-            .setBackground('#D5F0E1'); // Light green for sheet 3
-        });
-      }
-      
-      if (processedData.sheet4Rows.length > 0) {
-        processedData.sheet4Rows.forEach(rowIndex => {
-          destSheet.getRange(rowIndex, 1, 1, processedData.combinedData[0].length)
-            .setBackground('#FFE4B5'); // Light orange for sheet 4
-        });
-      }
-      
-      if (processedData.sheet5Rows.length > 0) {
-        processedData.sheet5Rows.forEach(rowIndex => {
-          destSheet.getRange(rowIndex, 1, 1, processedData.combinedData[0].length)
-            .setBackground('#FFD700'); // Light gold for sheet 5
+      // Color code rows based on source
+      if (processedData.coloredRows.length > 0) {
+        processedData.coloredRows.forEach(rowInfo => {
+          destSheet.getRange(rowInfo.rowIndex, 1, 1, processedData.combinedData[0].length)
+            .setBackground(rowInfo.color);
         });
       }
     }
@@ -108,8 +87,13 @@ function combineSheets() {
     console.log(`Total unique records: ${processedData.combinedData.length - 1}`);
     console.log(`Records merged: ${processedData.mergedCount}`);
     console.log(`New records added: ${processedData.newRecords}`);
+    console.log(`WhatsApp-only records: ${processedData.whatsappOnlyRecords}`);
     console.log(`Attended records: ${processedData.attendedCount}`);
     console.log(`Employed records: ${processedData.employedCount}`);
+    console.log(`Phone numbers cross-referenced: ${processedData.phonesCrossReferenced}`);
+    console.log(`Multiple attendees: ${processedData.multipleAttendees}`);
+    console.log(`Total attendance instances: ${processedData.totalAttendanceInstances}`);
+    console.log(`Empty records skipped: ${processedData.emptyRecordsSkipped}`);
     
   } catch (error) {
     console.error('Error combining sheets:', error);
@@ -119,58 +103,22 @@ function combineSheets() {
 function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
   const result = {
     combinedData: [],
-    sheet2Rows: [],
-    sheet3Rows: [],
-    sheet4Rows: [],
-    sheet5Rows: [],
+    coloredRows: [],
     mergedCount: 0,
     newRecords: 0,
+    whatsappOnlyRecords: 0,
     attendedCount: 0,
-    employedCount: 0
+    employedCount: 0,
+    phonesCrossReferenced: 0,
+    multipleAttendees: 0,
+    totalAttendanceInstances: 0,
+    emptyRecordsSkipped: 0
   };
   
   // Email to exclude from results
   const EXCLUDED_EMAIL = 'mmesomakelvin@gmail.com';
   
-  // Create sets of email addresses from Sheet 3, Sheet 4, AND Sheet 5 for attendance tracking
-  const sheet3Emails = new Set();
-  const sheet4Emails = new Set();
-  const sheet5Emails = new Set();
-  
-  // Extract emails from Sheet 3
-  const records3 = dataToRecords(data3);
-  records3.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email !== EXCLUDED_EMAIL) {
-        sheet3Emails.add(email);
-      }
-    }
-  });
-  
-  // Extract emails from Sheet 4
-  const records4 = dataToRecords(data4);
-  records4.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email !== EXCLUDED_EMAIL) {
-        sheet4Emails.add(email);
-      }
-    }
-  });
-  
-  // Extract emails from Sheet 5
-  const records5 = dataToRecords(data5);
-  records5.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email !== EXCLUDED_EMAIL) {
-        sheet5Emails.add(email);
-      }
-    }
-  });
-  
-  // Create master headers from all sheets and add "Attended", "Employed", and "Date Attended" columns
+  // Create master headers from all sheets and add new columns
   const allHeaders = getMasterHeaders(data1, data2, data3, data4, data5, existingData);
   
   // Add new columns if not already present
@@ -186,195 +134,324 @@ function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
     allHeaders.push('Date Attended');
   }
   
+  if (!allHeaders.includes('Attendance Count')) {
+    allHeaders.push('Attendance Count');
+  }
+  
   result.combinedData.push(allHeaders);
   
-  // Convert all data to record objects for easier processing
+  // Build comprehensive email-to-phone and phone-to-email mappings from ALL sheets
+  const emailToPhoneMap = new Map();
+  const phoneToEmailMap = new Map();
+  
+  function buildPhoneMappings(data, sheetName) {
+    const records = dataToRecords(data);
+    records.forEach(record => {
+      const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
+      const phone = getRecordPhone(record);
+      
+      if (email && email !== EXCLUDED_EMAIL && phone) {
+        emailToPhoneMap.set(email, phone);
+        phoneToEmailMap.set(phone, email);
+        console.log(`Phone mapping from ${sheetName}: ${email} -> ${phone}`);
+      }
+    });
+  }
+  
+  // Build phone mappings from all sheets
+  buildPhoneMappings(data1, 'Sheet1');
+  buildPhoneMappings(data2, 'Sheet2');
+  buildPhoneMappings(data3, 'Sheet3');
+  buildPhoneMappings(data4, 'Sheet4');
+  buildPhoneMappings(data5, 'Sheet5');
+  buildPhoneMappings(existingData, 'Existing');
+  
+  // Convert all data to record objects
   const records1 = dataToRecords(data1);
   const records2 = dataToRecords(data2);
+  const records3 = dataToRecords(data3);
+  const records4 = dataToRecords(data4);
+  const records5 = dataToRecords(data5);
   const existingRecords = dataToRecords(existingData);
   
-  // Create a map to track all records by email (but allow duplicates for attendance sheets)
-  const recordMap = new Map();
-  const attendanceRecords = []; // Separate array for attendance records that can have duplicates
+  // Create base record map (for main registration data - sheets 1, 2, existing)
+  const baseRecordMap = new Map(); // Key: email/phone, Value: base record
+  const phoneToEmailMap2 = new Map(); // Maps phone numbers to emails for lookup
   
-  // Add existing records first (excluding the banned email)
-  existingRecords.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email !== EXCLUDED_EMAIL) {
-        recordMap.set(email, { ...record, source: 'existing' });
-      }
-    }
-  });
+  // All attendance records (sheets 3, 4, 5) - will be processed separately
+  const attendanceRecords = [];
   
-  // Process Sheet 1 records (excluding the banned email)
-  records1.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email === EXCLUDED_EMAIL) return; // Skip this email
-      
-      if (recordMap.has(email)) {
-        // Merge with existing record
-        const existingRecord = recordMap.get(email);
-        const mergedRecord = mergeRecords(existingRecord, record);
-        recordMap.set(email, { ...mergedRecord, source: existingRecord.source });
-        result.mergedCount++;
-      } else {
-        // New record
-        recordMap.set(email, { ...record, source: 'sheet1' });
-        result.newRecords++;
-      }
-    }
-  });
-  
-  // Process Sheet 2 records (excluding the banned email)
-  records2.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email === EXCLUDED_EMAIL) return; // Skip this email
-      
-      if (recordMap.has(email)) {
-        // Merge with existing record
-        const existingRecord = recordMap.get(email);
-        const mergedRecord = mergeRecords(existingRecord, record);
-        recordMap.set(email, { ...mergedRecord, source: existingRecord.source === 'existing' ? 'existing' : 'merged' });
-        result.mergedCount++;
-      } else {
-        // New record from sheet 2
-        recordMap.set(email, { ...record, source: 'sheet2' });
-        result.newRecords++;
-      }
-    }
-  });
-  
-  // Process Sheet 3 records (Came List - 1 Jan 2025) - Allow duplicates
-  records3.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email === EXCLUDED_EMAIL) return; // Skip this email
-      
-      // Add date attended for Sheet 3
-      record['Date Attended'] = '1 Jan 2025';
-      
-      if (recordMap.has(email)) {
-        // Create a duplicate entry for attendance records
-        const baseRecord = recordMap.get(email);
-        const mergedRecord = mergeRecords(baseRecord, record);
-        attendanceRecords.push({ ...mergedRecord, source: 'sheet3' });
-        result.mergedCount++;
-      } else {
-        // New record from sheet 3
-        attendanceRecords.push({ ...record, source: 'sheet3' });
-        result.newRecords++;
-      }
-    }
-  });
-  
-  // Process Sheet 4 records (Payment_List(UU) - 1 May 2025) - Allow duplicates
-  records4.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email === EXCLUDED_EMAIL) return; // Skip this email
-      
-      // Add date attended for Sheet 4
-      record['Date Attended'] = '1 May 2025';
-      
-      if (recordMap.has(email)) {
-        // Create a duplicate entry for attendance records
-        const baseRecord = recordMap.get(email);
-        const mergedRecord = mergeRecords(baseRecord, record);
-        attendanceRecords.push({ ...mergedRecord, source: 'sheet4' });
-        result.mergedCount++;
-      } else {
-        // New record from sheet 4
-        attendanceRecords.push({ ...record, source: 'sheet4' });
-        result.newRecords++;
-      }
-    }
-  });
-  
-  // Process Sheet 5 records (Coming Merge - 1 Nov 2024) - Allow duplicates
-  records5.forEach(record => {
-    if (record['Email Address']) {
-      const email = record['Email Address'].toString().trim().toLowerCase();
-      if (email === EXCLUDED_EMAIL) return; // Skip this email
-      
-      // Add date attended for Sheet 5
-      record['Date Attended'] = '1 Nov 2024';
-      
-      if (recordMap.has(email)) {
-        // Create a duplicate entry for attendance records
-        const baseRecord = recordMap.get(email);
-        const mergedRecord = mergeRecords(baseRecord, record);
-        attendanceRecords.push({ ...mergedRecord, source: 'sheet5' });
-        result.mergedCount++;
-      } else {
-        // New record from sheet 5
-        attendanceRecords.push({ ...record, source: 'sheet5' });
-        result.newRecords++;
-      }
-    }
-  });
-  
-  // Convert back to array format and track sheet rows
-  let rowIndex = 2; // Start from row 2 (after header)
-  
-  // First, add records from the main recordMap (unique emails from Sheets 1 & 2)
-  recordMap.forEach(record => {
-    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : '';
+  // Function to get unique key for a record (email or phone-based)
+  function getRecordKey(record) {
+    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
+    const phone = getRecordPhone(record);
     
-    // Skip if this is the excluded email
-    if (email === EXCLUDED_EMAIL) return;
+    // Priority: email first, then phone
+    if (email && email !== EXCLUDED_EMAIL) {
+      return `email:${email}`;
+    } else if (phone) {
+      return `phone:${phone}`;
+    }
+    return null;
+  }
+  
+  // Function to cross-reference and fill missing phone/email
+  function crossReferenceRecord(record) {
+    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
+    let currentPhone = getRecordPhone(record);
     
-    // FIXED: Determine attendance status - 1 if found in Sheet 3, Sheet 4, OR Sheet 5
-    const attended = (sheet3Emails.has(email) || sheet4Emails.has(email) || sheet5Emails.has(email)) ? 1 : 0;
-    record['Attended'] = attended;
-    
-    if (attended === 1) {
-      result.attendedCount++;
+    // If record has email but no phone, try to find phone from mapping
+    if (email && email !== EXCLUDED_EMAIL && !currentPhone && emailToPhoneMap.has(email)) {
+      const mappedPhone = emailToPhoneMap.get(email);
+      record['Whatsapp Phone Number'] = mappedPhone;
+      result.phonesCrossReferenced++;
+      console.log(`Cross-referenced phone for ${email}: ${mappedPhone}`);
+      currentPhone = mappedPhone;
     }
     
-    // Determine employment status - 1 if has company data (not NIL, Not Recorded, or empty), 0 otherwise
-    const companyField = record['Current Company (If unemployed, put NIL)'] || '';
-    const companyStr = companyField.toString().trim().toUpperCase();
-    const employed = (companyStr && 
-                     companyStr !== 'NIL' && 
-                     companyStr !== 'NOT RECORDED' && 
-                     companyStr !== '') ? 1 : 0;
-    record['Employed'] = employed;
-    
-    if (employed === 1) {
-      result.employedCount++;
+    // If record has phone but no email, try to find email from mapping
+    if (currentPhone && !email && phoneToEmailMap.has(currentPhone)) {
+      const mappedEmail = phoneToEmailMap.get(currentPhone);
+      record['Email Address'] = mappedEmail;
+      result.phonesCrossReferenced++;
+      console.log(`Cross-referenced email for ${currentPhone}: ${mappedEmail}`);
     }
     
-    // Set Date Attended to empty for main records (they get dates from attendance records)
-    if (!record['Date Attended']) {
-      record['Date Attended'] = '';
-    }
-    
-    const recordArray = allHeaders.map(header => {
-      const value = record[header] || '';
-      return getDefaultValue(value, header);
+    return record;
+  }
+  
+  // Function to check if a record has meaningful data
+  function hasAnyMeaningfulData(record) {
+    return Object.keys(record).some(key => {
+      if (key === 'source' || key === 'color') return false;
+      const value = record[key];
+      return value && value !== 'Not Recorded' && value !== 0 && value.toString().trim() !== '';
     });
-    result.combinedData.push(recordArray);
-    
-    // Track which rows came from which sheets
-    if (record.source === 'sheet2') {
-      result.sheet2Rows.push(rowIndex);
-    }
-    rowIndex++;
-  });
+  }
   
-  // Then, add attendance records (allowing duplicates)
-  attendanceRecords.forEach(record => {
-    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : '';
+  // Function to add or merge base records (sheets 1, 2, existing)
+  function addOrMergeBaseRecord(record, source) {
+    record = crossReferenceRecord(record);
     
-    // Skip if this is the excluded email
+    // Skip records without meaningful data
+    if (!hasAnyMeaningfulData(record)) {
+      console.log(`Skipping empty record from ${source}`);
+      result.emptyRecordsSkipped++;
+      return;
+    }
+    
+    const recordKey = getRecordKey(record);
+    if (!recordKey) return;
+    
+    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
     if (email === EXCLUDED_EMAIL) return;
     
-    // These are attendance records, so set Attended to 1
-    record['Attended'] = 1;
-    result.attendedCount++;
+    const phone = getRecordPhone(record);
+    
+    // Check if we already have this record
+    let existingKey = recordKey;
+    let foundExisting = false;
+    
+    // Also check if we can find by phone number
+    if (phone && phoneToEmailMap2.has(phone)) {
+      const linkedEmail = phoneToEmailMap2.get(phone);
+      existingKey = `email:${linkedEmail}`;
+      foundExisting = baseRecordMap.has(existingKey);
+    } else if (baseRecordMap.has(recordKey)) {
+      foundExisting = true;
+    }
+    
+    if (foundExisting && baseRecordMap.has(existingKey)) {
+      // Merge with existing record
+      const existingRecord = baseRecordMap.get(existingKey);
+      const mergedRecord = mergeRecords(existingRecord, record);
+      mergedRecord.source = existingRecord.source; // Keep original source
+      baseRecordMap.set(existingKey, mergedRecord);
+      result.mergedCount++;
+    } else {
+      // Add new record
+      record.source = source;
+      baseRecordMap.set(recordKey, record);
+      
+      // Map phone to email for future lookups
+      if (phone && email && email !== EXCLUDED_EMAIL) {
+        phoneToEmailMap2.set(phone, email);
+      }
+      
+      result.newRecords++;
+    }
+  }
+  
+  // Process base records (existing, sheet1, sheet2)
+  console.log('Processing existing records...');
+  existingRecords.forEach(record => {
+    addOrMergeBaseRecord(record, 'existing');
+  });
+  
+  console.log('Processing Sheet 1 records...');
+  records1.forEach(record => {
+    addOrMergeBaseRecord(record, 'sheet1');
+  });
+  
+  console.log('Processing Sheet 2 records...');
+  records2.forEach(record => {
+    addOrMergeBaseRecord(record, 'sheet2');
+  });
+  
+  // Process attendance records separately (sheets 3, 4, 5)
+  // Each attendance record will be kept separate to track multiple attendances
+  function processAttendanceRecords(records, sheetSource, dateAttended, sheetColor) {
+    console.log(`Processing ${sheetSource} attendance records...`);
+    
+    records.forEach(record => {
+      record = crossReferenceRecord(record);
+      
+      const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
+      if (email === EXCLUDED_EMAIL) return;
+      
+      const phone = getRecordPhone(record);
+      const recordKey = getRecordKey(record);
+      
+      if (!recordKey) return;
+      
+      // Set attendance-specific fields
+      record['Date Attended'] = dateAttended;
+      record['Attended'] = 1;
+      record.source = sheetSource;
+      record.color = sheetColor;
+      
+      // Try to find base record to merge with
+      let baseRecord = null;
+      
+      // Look for base record by email
+      if (email && baseRecordMap.has(`email:${email}`)) {
+        baseRecord = baseRecordMap.get(`email:${email}`);
+      }
+      // Look for base record by phone
+      else if (phone && phoneToEmailMap2.has(phone)) {
+        const linkedEmail = phoneToEmailMap2.get(phone);
+        if (baseRecordMap.has(`email:${linkedEmail}`)) {
+          baseRecord = baseRecordMap.get(`email:${linkedEmail}`);
+        }
+      }
+      
+      // Create attendance record
+      let attendanceRecord;
+      if (baseRecord) {
+        // Merge with base record
+        attendanceRecord = mergeRecords(baseRecord, record);
+        attendanceRecord.source = sheetSource;
+        attendanceRecord.color = sheetColor;
+        attendanceRecord['Date Attended'] = dateAttended;
+        attendanceRecord['Attended'] = 1;
+      } else {
+        // Use attendance record as-is
+        attendanceRecord = { ...record };
+        result.whatsappOnlyRecords++;
+      }
+      
+      attendanceRecords.push(attendanceRecord);
+      result.totalAttendanceInstances++;
+    });
+  }
+  
+  // Process each attendance sheet
+  processAttendanceRecords(records3, 'sheet3', '1 Jan 2025', '#D5F0E1'); // Light green
+  processAttendanceRecords(records4, 'sheet4', '1 May 2025', '#FFE4B5'); // Light orange
+  processAttendanceRecords(records5, 'sheet5', '1 Nov 2024', '#FFD700'); // Light gold
+  
+  // Track people who attended multiple times
+  const attendanceCountMap = new Map();
+  
+  attendanceRecords.forEach(record => {
+    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
+    const phone = getRecordPhone(record);
+    
+    // Use email as primary key, phone as fallback
+    const key = email && email !== EXCLUDED_EMAIL ? email : phone;
+    
+    if (key) {
+      attendanceCountMap.set(key, (attendanceCountMap.get(key) || 0) + 1);
+    }
+  });
+  
+  // Count multiple attendees
+  attendanceCountMap.forEach((count, key) => {
+    if (count > 1) {
+      result.multipleAttendees++;
+    }
+  });
+  
+  // Convert to final output array
+  let rowIndex = 2;
+  
+  // First, add base records that didn't attend any programs
+  baseRecordMap.forEach((record, key) => {
+    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
+    const phone = getRecordPhone(record);
+    
+    // Skip completely empty records or records with no meaningful data
+    if (!hasAnyMeaningfulData(record)) {
+      console.log('Skipping empty record with key:', key);
+      result.emptyRecordsSkipped++;
+      return; // Skip this record
+    }
+    
+    // Check if this person attended any program
+    const attendanceKey = email && email !== EXCLUDED_EMAIL ? email : phone;
+    const hasAttendance = attendanceKey && attendanceCountMap.has(attendanceKey);
+    
+    if (!hasAttendance) {
+      // This person didn't attend, so add their base record
+      record['Attended'] = 0;
+      record['Date Attended'] = '';
+      record['Attendance Count'] = 0;
+      
+      // Determine employment status
+      const companyField = record['Current Company (If unemployed, put NIL)'] || '';
+      const companyStr = companyField.toString().trim().toUpperCase();
+      const employed = (companyStr && 
+                       companyStr !== 'NIL' && 
+                       companyStr !== 'NOT RECORDED' && 
+                       companyStr !== '') ? 1 : 0;
+      record['Employed'] = employed;
+      
+      if (employed === 1) {
+        result.employedCount++;
+      }
+      
+      const recordArray = allHeaders.map(header => {
+        const value = record[header] || '';
+        return getDefaultValue(value, header);
+      });
+      result.combinedData.push(recordArray);
+      
+      // Color code based on source
+      let color = null;
+      if (record.source === 'sheet2') {
+        color = '#E1D5F0'; // Light purple
+      }
+      
+      if (color) {
+        result.coloredRows.push({
+          rowIndex: rowIndex,
+          color: color
+        });
+      }
+      
+      rowIndex++;
+    }
+  });
+  
+  // Then, add all attendance records (including multiple attendances for same person)
+  attendanceRecords.forEach(record => {
+    const email = record['Email Address'] ? record['Email Address'].toString().trim().toLowerCase() : null;
+    const phone = getRecordPhone(record);
+    
+    // Set attendance count
+    const attendanceKey = email && email !== EXCLUDED_EMAIL ? email : phone;
+    const attendanceCount = attendanceKey ? (attendanceCountMap.get(attendanceKey) || 1) : 1;
+    record['Attendance Count'] = attendanceCount;
     
     // Determine employment status
     const companyField = record['Current Company (If unemployed, put NIL)'] || '';
@@ -389,24 +466,62 @@ function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
       result.employedCount++;
     }
     
+    result.attendedCount++;
+    
     const recordArray = allHeaders.map(header => {
       const value = record[header] || '';
       return getDefaultValue(value, header);
     });
     result.combinedData.push(recordArray);
     
-    // Track which rows came from which sheets
-    if (record.source === 'sheet3') {
-      result.sheet3Rows.push(rowIndex);
-    } else if (record.source === 'sheet4') {
-      result.sheet4Rows.push(rowIndex);
-    } else if (record.source === 'sheet5') {
-      result.sheet5Rows.push(rowIndex);
+    // Color code attendance records
+    let color = record.color;
+    
+    // Special color for multiple attendees
+    if (attendanceCount > 1) {
+      color = '#FF6B6B'; // Red for multiple attendances
     }
+    
+    result.coloredRows.push({
+      rowIndex: rowIndex,
+      color: color
+    });
+    
     rowIndex++;
   });
   
   return result;
+}
+
+// Helper function to get normalized phone from record
+function getRecordPhone(record) {
+  if (record['Whatsapp Phone Number']) {
+    const phone = normalizePhoneNumber(record['Whatsapp Phone Number'].toString());
+    if (phone) return phone;
+  }
+  return null;
+}
+
+// Helper function to normalize phone numbers for comparison
+function normalizePhoneNumber(phone) {
+  if (!phone) return null;
+  
+  // Remove all non-digit characters
+  const cleaned = phone.toString().replace(/\D/g, '');
+  
+  // Must be at least 10 digits to be valid
+  if (cleaned.length < 10) return null;
+  
+  // Handle Nigerian numbers - if starts with 234, keep as is; if starts with 0, replace with 234
+  if (cleaned.startsWith('234')) {
+    return cleaned;
+  } else if (cleaned.startsWith('0') && cleaned.length === 11) {
+    return '234' + cleaned.substring(1);
+  } else if (cleaned.length === 10) {
+    return '234' + cleaned;
+  }
+  
+  return cleaned;
 }
 
 function getMasterHeaders(data1, data2, data3, data4, data5, existingData) {
@@ -434,7 +549,6 @@ function dataToRecords(data) {
     const record = {};
     headers.forEach((header, index) => {
       const value = data[i][index];
-      // Use the new getDefaultValue function for consistent handling
       record[header] = getDefaultValue(value, header);
     });
     records.push(record);
@@ -444,51 +558,40 @@ function dataToRecords(data) {
 }
 
 function getDefaultValue(value, header) {
-  // Check if value is empty, null, or undefined
   const isEmpty = (value === '' || value === null || value === undefined);
   
-  // Financial columns from third sheet should default to 0
   const financialColumns = ['Payment', 'Expected', 'Amount owed'];
   const isFinancialColumn = financialColumns.some(col => 
     header && header.toLowerCase().includes(col.toLowerCase())
   );
   
-  // Discount column should be handled specially - keep as "Not Recorded" when empty
   const isDiscountColumn = header && header.toLowerCase().includes('discount');
-  
-  // Attended column should default to 0 when empty
   const isAttendedColumn = header && header.toLowerCase() === 'attended';
-  
-  // Employed column should default to 0 when empty
   const isEmployedColumn = header && header.toLowerCase() === 'employed';
+  const isAttendanceCountColumn = header && header.toLowerCase() === 'attendance count';
   
   if (isEmpty) {
     if (isDiscountColumn) {
       return 'Not Recorded';
-    } else if (isFinancialColumn || isAttendedColumn || isEmployedColumn) {
+    } else if (isFinancialColumn || isAttendedColumn || isEmployedColumn || isAttendanceCountColumn) {
       return 0;
     } else {
       return 'Not Recorded';
     }
   }
   
-  // If discount column has a value, ensure it's formatted as percentage
+  // Handle discount column formatting
   if (isDiscountColumn && !isEmpty) {
     const valueStr = value.toString().trim();
     if (valueStr) {
-      // If it's already a percentage (contains %), keep it as is
       if (valueStr.includes('%')) {
         return valueStr;
       }
-      // If it's a decimal (like 0.1), convert to percentage
       const numValue = parseFloat(valueStr);
       if (!isNaN(numValue)) {
-        // If the number is between 0 and 1, treat it as a decimal to convert to percentage
         if (numValue >= 0 && numValue <= 1) {
           return (numValue * 100) + '%';
-        }
-        // If the number is greater than 1, assume it's already in percentage format, just add %
-        else {
+        } else {
           return numValue + '%';
         }
       }
@@ -501,34 +604,33 @@ function getDefaultValue(value, header) {
 function mergeRecords(record1, record2) {
   const merged = { ...record1 };
   
-  // Merge fields, preferring non-empty values
   Object.keys(record2).forEach(key => {
-    if (key !== 'source') {
-      const defaultValue1 = getDefaultValue(merged[key], key);
-      const defaultValue2 = getDefaultValue(record2[key], key);
-      
-      // Special handling for "Industry you work in" column - Sheet 2 always overwrites Sheet 1
+    if (key !== 'source' && key !== 'color') {
       const isIndustryColumn = key && (
         key.toLowerCase().includes('industry you work in') || 
         key.toLowerCase().includes('industry') && key.toLowerCase().includes('work')
       );
       
+      // For industry columns, always take the newer non-empty value
       if (isIndustryColumn && record2[key] && record2[key] !== 'Not Recorded' && record2[key].toString().trim() !== '') {
         merged[key] = record2[key];
       }
-      // If record1 has default value but record2 has real data, use record2's value
+      // For Date Attended, keep the specific attendance date
+      else if (key === 'Date Attended' && record2[key] && record2[key] !== 'Not Recorded' && record2[key].toString().trim() !== '') {
+        merged[key] = record2[key];
+      }
+      // For other fields, fill empty values or merge text fields
       else if ((merged[key] === 'Not Recorded' || merged[key] === 0 || !merged[key] || merged[key].toString().trim() === '') && 
           record2[key] && record2[key] !== 'Not Recorded' && record2[key] !== 0 && record2[key].toString().trim() !== '') {
         merged[key] = record2[key];
       }
-      // If both have values and they're different, combine them (but not if one is a default value)
+      // For text fields that contain multiple values, merge them
       else if (!isIndustryColumn && merged[key] && record2[key] && 
                merged[key] !== 'Not Recorded' && record2[key] !== 'Not Recorded' &&
                merged[key] !== 0 && record2[key] !== 0 &&
                merged[key].toString().trim() !== record2[key].toString().trim() &&
                merged[key].toString().trim() !== '' &&
                record2[key].toString().trim() !== '') {
-        // For certain fields, we might want to combine rather than overwrite
         if (key.includes('Why') || key.includes('skills') || key.includes('project')) {
           merged[key] = merged[key] + ' | ' + record2[key];
         }
