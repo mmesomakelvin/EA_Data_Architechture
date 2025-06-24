@@ -16,6 +16,9 @@ function combineSheets() {
   const SHEET5_ID = '1Y4_QD6MbkR7cBYQFKcaP_iefU2akAnXX_ybYdcKKO8I'; // Fifth sheet - Coming Merge
   const SHEET5_TAB = 'Coming Merge';
   
+  const SHEET6_ID = '1yGVCOK5-PzHc4HRNj8YrfbJ6AVqtQEt7EhejePRm0_w'; // Sixth sheet - Attend Use
+  const SHEET6_TAB = 'Attend Use';
+  
   const DESTINATION_SHEET_ID = '1G2b3SHGf883wtuGnA88iO0BQY4xtMS5-T8hwXvgcpps';
   const DESTINATION_TAB = 'Sheet1';
   
@@ -41,6 +44,10 @@ function combineSheets() {
     const sheet5 = SpreadsheetApp.openById(SHEET5_ID).getSheetByName(SHEET5_TAB);
     if (!sheet5) throw new Error('Sheet 5 not found');
     
+    console.log('Opening Sheet 6...');
+    const sheet6 = SpreadsheetApp.openById(SHEET6_ID).getSheetByName(SHEET6_TAB);
+    if (!sheet6) throw new Error('Sheet 6 not found');
+    
     console.log('Opening Destination Sheet...');
     const destSheet = SpreadsheetApp.openById(DESTINATION_SHEET_ID).getSheetByName(DESTINATION_TAB);
     if (!destSheet) throw new Error('Destination sheet not found');
@@ -51,8 +58,9 @@ function combineSheets() {
     const data3 = getSheetData(sheet3);
     const data4 = getSheetData(sheet4);
     const data5 = getSheetData(sheet5);
+    const data6 = getSheetData(sheet6);
     
-    if (data1.length === 0 && data2.length === 0 && data3.length === 0 && data4.length === 0 && data5.length === 0) {
+    if (data1.length === 0 && data2.length === 0 && data3.length === 0 && data4.length === 0 && data5.length === 0 && data6.length === 0) {
       console.log('No data found in source sheets');
       return;
     }
@@ -61,7 +69,7 @@ function combineSheets() {
     const existingData = getSheetData(destSheet);
     
     // Process the data with smart merging
-    const processedData = smartMergeSheets(data1, data2, data3, data4, data5, existingData);
+    const processedData = smartMergeSheets(data1, data2, data3, data4, data5, data6, existingData);
     
     // Clear and write the merged data
     destSheet.clear();
@@ -100,7 +108,7 @@ function combineSheets() {
   }
 }
 
-function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
+function smartMergeSheets(data1, data2, data3, data4, data5, data6, existingData) {
   const result = {
     combinedData: [],
     coloredRows: [],
@@ -119,7 +127,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
   const EXCLUDED_EMAIL = 'mmesomakelvin@gmail.com';
   
   // Create master headers from all sheets and add new columns
-  const allHeaders = getMasterHeaders(data1, data2, data3, data4, data5, existingData);
+  const allHeaders = getMasterHeaders(data1, data2, data3, data4, data5, data6, existingData);
   
   // Add new columns if not already present
   if (!allHeaders.includes('Attended')) {
@@ -164,6 +172,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
   buildPhoneMappings(data3, 'Sheet3');
   buildPhoneMappings(data4, 'Sheet4');
   buildPhoneMappings(data5, 'Sheet5');
+  buildPhoneMappings(data6, 'Sheet6');
   buildPhoneMappings(existingData, 'Existing');
   
   // Convert all data to record objects
@@ -172,13 +181,14 @@ function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
   const records3 = dataToRecords(data3);
   const records4 = dataToRecords(data4);
   const records5 = dataToRecords(data5);
+  const records6 = dataToRecords(data6);
   const existingRecords = dataToRecords(existingData);
   
   // Create base record map (for main registration data - sheets 1, 2, existing)
   const baseRecordMap = new Map(); // Key: email/phone, Value: base record
   const phoneToEmailMap2 = new Map(); // Maps phone numbers to emails for lookup
   
-  // All attendance records (sheets 3, 4, 5) - will be processed separately
+  // All attendance records (sheets 3, 4, 5, 6) - will be processed separately
   const attendanceRecords = [];
   
   // Function to get unique key for a record (email or phone-based)
@@ -298,7 +308,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
     addOrMergeBaseRecord(record, 'sheet2');
   });
   
-  // Process attendance records separately (sheets 3, 4, 5)
+  // Process attendance records separately (sheets 3, 4, 5, 6)
   // Each attendance record will be kept separate to track multiple attendances
   function processAttendanceRecords(records, sheetSource, dateAttended, sheetColor) {
     console.log(`Processing ${sheetSource} attendance records...`);
@@ -359,6 +369,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, existingData) {
   processAttendanceRecords(records3, 'sheet3', '1 Jan 2025', '#D5F0E1'); // Light green
   processAttendanceRecords(records4, 'sheet4', '1 May 2025', '#FFE4B5'); // Light orange
   processAttendanceRecords(records5, 'sheet5', '1 Nov 2024', '#FFD700'); // Light gold
+  processAttendanceRecords(records6, 'sheet6', '1 Aug 2024', '#E6E6FA'); // Light lavender - UPDATED DATE
   
   // Track people who attended multiple times
   const attendanceCountMap = new Map();
@@ -524,11 +535,11 @@ function normalizePhoneNumber(phone) {
   return cleaned;
 }
 
-function getMasterHeaders(data1, data2, data3, data4, data5, existingData) {
+function getMasterHeaders(data1, data2, data3, data4, data5, data6, existingData) {
   const allHeaders = new Set();
   
   // Add headers from all sources
-  [data1, data2, data3, data4, data5, existingData].forEach(data => {
+  [data1, data2, data3, data4, data5, data6, existingData].forEach(data => {
     if (data.length > 0) {
       data[0].forEach(header => {
         if (header) allHeaders.add(header);
