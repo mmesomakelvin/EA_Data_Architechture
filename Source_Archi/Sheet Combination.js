@@ -23,6 +23,9 @@ function combineSheets() {
 
   const SHEET8_ID = '1Gpo01XcmuVfTr452socf2DmCNAuqIy_F3pbBzdkwKQ4'; // Eighth sheet
   const SHEET8_TAB = 'Sheet 9 paid';
+
+  const SHEET9_ID = '1G2kp4gYXw8fQFjnnXkVS-OinoWU_itvtYIH6z5ZfskE'; // Ninth sheet
+  const SHEET9_TAB = 'Used Sheet';
   
   const DESTINATION_SHEET_ID = '1G2b3SHGf883wtuGnA88iO0BQY4xtMS5-T8hwXvgcpps';
   const DESTINATION_TAB = 'Sheet1';
@@ -60,6 +63,10 @@ function combineSheets() {
     console.log('Opening Sheet 8...');
     const sheet8 = SpreadsheetApp.openById(SHEET8_ID).getSheetByName(SHEET8_TAB);
     if (!sheet8) throw new Error('Sheet 8 not found');
+
+    console.log('Opening Sheet 9...');
+    const sheet9 = SpreadsheetApp.openById(SHEET9_ID).getSheetByName(SHEET9_TAB);
+    if (!sheet9) throw new Error('Sheet 9 not found');
     
     console.log('Opening Destination Sheet...');
     const destSheet = SpreadsheetApp.openById(DESTINATION_SHEET_ID).getSheetByName(DESTINATION_TAB);
@@ -74,11 +81,12 @@ function combineSheets() {
     const data6 = getSheetData(sheet6);
     const data7 = getSheetData(sheet7);
     const data8 = getSheetData(sheet8);
+    const data9 = getSheetData(sheet9);
     
     if (
       data1.length === 0 && data2.length === 0 && data3.length === 0 && 
       data4.length === 0 && data5.length === 0 && data6.length === 0 && 
-      data7.length === 0 && data8.length === 0
+      data7.length === 0 && data8.length === 0 && data9.length === 0
     ) {
       console.log('No data found in source sheets');
       return;
@@ -89,7 +97,7 @@ function combineSheets() {
     
     // Process the data with smart merging
     const processedData = smartMergeSheets(
-      data1, data2, data3, data4, data5, data6, data7, data8, existingData
+      data1, data2, data3, data4, data5, data6, data7, data8, data9, existingData
     );
     
     // Clear and write the merged data
@@ -129,7 +137,7 @@ function combineSheets() {
   }
 }
 
-function smartMergeSheets(data1, data2, data3, data4, data5, data6, data7, data8, existingData) {
+function smartMergeSheets(data1, data2, data3, data4, data5, data6, data7, data8, data9, existingData) {
   const result = {
     combinedData: [],
     coloredRows: [],
@@ -149,7 +157,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, data6, data7, data8
   
   // Create master headers from all sheets and add new columns
   const allHeaders = getMasterHeaders(
-    data1, data2, data3, data4, data5, data6, data7, data8, existingData
+    data1, data2, data3, data4, data5, data6, data7, data8, data9, existingData
   );
   
   if (!allHeaders.includes('Attended')) allHeaders.push('Attended');
@@ -183,6 +191,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, data6, data7, data8
   buildPhoneMappings(data6, 'Sheet6');
   buildPhoneMappings(data7, 'Sheet7');
   buildPhoneMappings(data8, 'Sheet8');
+  buildPhoneMappings(data9, 'Sheet9');
   buildPhoneMappings(existingData, 'Existing');
   
   // Convert all data to record objects
@@ -194,6 +203,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, data6, data7, data8
   const records6 = dataToRecords(data6);
   const records7 = dataToRecords(data7);
   const records8 = dataToRecords(data8);
+  const records9 = dataToRecords(data9);
   const existingRecords = dataToRecords(existingData);
   
   // Registration records (main base): sheets 1, 2, existing
@@ -277,7 +287,7 @@ function smartMergeSheets(data1, data2, data3, data4, data5, data6, data7, data8
   records1.forEach(record => addOrMergeBaseRecord(record, 'sheet1'));
   records2.forEach(record => addOrMergeBaseRecord(record, 'sheet2'));
   
-  // Attendance sheets (3-8)
+  // Attendance sheets (3-9)
   function processAttendanceRecords(records, sheetSource, dateAttended, sheetColor) {
     records.forEach(record => {
       record = crossReferenceRecord(record);
@@ -319,7 +329,8 @@ function smartMergeSheets(data1, data2, data3, data4, data5, data6, data7, data8
   processAttendanceRecords(records5, 'sheet5', '1 Nov 2024', '#FFD700');
   processAttendanceRecords(records6, 'sheet6', '1 Aug 2024', '#E6E6FA');
   processAttendanceRecords(records7, 'sheet7', '1 Apr 2024', '#F0E68C');
-  processAttendanceRecords(records8, 'sheet8', '1 Jan 2024', '#B0E0E6'); // Sheet 8 uses the correct date!
+  processAttendanceRecords(records8, 'sheet8', '1 Jan 2024', '#B0E0E6');
+  processAttendanceRecords(records9, 'sheet9', '1 Aug 2023', '#D0F0F6'); // Sheet 9 uses light teal
 
   const attendanceCountMap = new Map();
   attendanceRecords.forEach(record => {
@@ -424,9 +435,9 @@ function normalizePhoneNumber(phone) {
   return cleaned;
 }
 
-function getMasterHeaders(data1, data2, data3, data4, data5, data6, data7, data8, existingData) {
+function getMasterHeaders(data1, data2, data3, data4, data5, data6, data7, data8, data9, existingData) {
   const allHeaders = new Set();
-  [data1, data2, data3, data4, data5, data6, data7, data8, existingData].forEach(data => {
+  [data1, data2, data3, data4, data5, data6, data7, data8, data9, existingData].forEach(data => {
     if (data.length > 0) {
       data[0].forEach(header => {
         if (header) allHeaders.add(header);
